@@ -1,7 +1,26 @@
 import os
 import sys
 from docx2pdf import convert
-from pypdf import PdfWriter
+from pypdf import PdfWriter, PdfReader
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import letter
+import io
+
+
+def create_page_number_overlay(page_num, page_width, page_height):
+    """创建页码水印"""
+    packet = io.BytesIO()
+    can = canvas.Canvas(packet, pagesize=(page_width, page_height))
+    
+    # 设置字体和大小
+    can.setFont("Helvetica", 10)
+    
+    # 在右下角添加页码，距离边缘20像素
+    can.drawRightString(page_width - 20, 20, str(page_num))
+    
+    can.save()
+    packet.seek(0)
+    return PdfReader(packet)
 
 
 def merge_pdfs():
@@ -20,18 +39,41 @@ def merge_pdfs():
         print("没有找到需要合并的 PDF 文件。")
         return
 
-    print(f"\n开始合并 PDF...")
+    print(f"\n开始合并 PDF 并添加页码...")
     merger = PdfWriter()
+    current_page_num = 1
 
     for filename in pdf_files:
         path = os.path.join(output_dir, filename)
         print(f"正在合并: {filename}")
-        merger.append(path)
+        
+        try:
+            reader = PdfReader(path)
+            
+            for page in reader.pages:
+                # 获取页面尺寸
+                page_width = float(page.mediabox.width)
+                page_height = float(page.mediabox.height)
+                
+                # 创建页码水印
+                page_number_overlay = create_page_number_overlay(current_page_num, page_width, page_height)
+                overlay_page = page_number_overlay.pages[0]
+                
+                # 将页码叠加到原页面上
+                page.merge_page(overlay_page)
+                merger.add_page(page)
+                
+                current_page_num += 1
+                
+        except Exception as e:
+            print(f"处理文件 {filename} 时出错: {e}")
+            continue
 
     try:
         merger.write(merge_file)
         merger.close()
         print(f"\n合并完成！已保存为: {merge_file}")
+        print(f"总共添加了 {current_page_num - 1} 页的页码")
     except Exception as e:
         print(f"合并 PDF 时出错: {e}")
 
@@ -93,6 +135,7 @@ def batch_convert():
         print(f"成功转换: {converted_count} 个文件")
         print(f"跳过已存在: {skipped_count} 个文件")
 
+    
 if __name__ == "__main__":
     batch_convert()
     # 转换完成后执行合并
